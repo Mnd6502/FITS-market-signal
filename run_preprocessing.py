@@ -15,9 +15,9 @@ print(f"Data directory set to: {DATA_DIRECTORY}")
 # Using only the files you are testing with
 JSON_FILES = [
     "2017_processed.json",
-    "2018_processed.json"
-    # "2019_processed.json",
-    # "2020_processed.json",
+    "2018_processed.json",
+    "2019_processed.json",
+    "2020_processed.json"
     # "2021_processed.json",
     # "2022_processed.json",
     # "2023_processed.json"
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     price_data = get_price_data(
         ticker="^DJI",
         start_date="2017-01-01",
-        end_date="2018-12-31"
+        end_date="2020-12-31"
     )
     
     # Step 2: Create Price Features
