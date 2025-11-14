@@ -13,10 +13,6 @@ The core hypothesis is that a *smarter sentiment feature* (FiTS) provides a bett
 ## Setup & Installation
 
 1.  **Clone this repository:**
-    ```bash
-    git clone [https://github.com/YourUsername/Financial_Project.git](https://github.com/YourUsername/Financial_Project.git)
-    cd Financial_Project
-    ```
 
 2.  **Get the Data:**
     * Download the financial news data from the [original author's repository](https://github.com/felixdrinkall/financial-news-dataset).
@@ -35,9 +31,7 @@ The core hypothesis is that a *smarter sentiment feature* (FiTS) provides a bett
     This will create a new file named `final_preprocessed_data.csv` (which is also ignored by Git).
 
 5.  **Run Model:**
-    ```bash
-    python model.py
-    ```
+    * Use `model_evaluation.ipynb`
 
 ## License
 

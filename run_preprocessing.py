@@ -12,7 +12,10 @@ SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 DATA_DIRECTORY = os.path.join(SCRIPT_DIRECTORY, "data")
 print(f"Data directory set to: {DATA_DIRECTORY}")
 
-# Using only the files you are testing with
+# ---
+# NOTE: Start with two files. Once this script succeeds,
+# you can add all your other JSON files to this list.
+# ---
 JSON_FILES = [
     "2017_processed.json",
     "2018_processed.json",
@@ -80,20 +83,39 @@ def load_all_news_data(directory, files_to_load):
     final_df = final_df.dropna(subset=['date_publish', 'pos'])
     return final_df
 
-def get_price_data(ticker="^DJI", start_date="2017-01-01", end_date="2018-12-31"):
+def get_price_data(ticker="^DJI", start_date="2017-01-01", end_date="2020-12-31"):
     """
     Downloads DJIA (ticker ^DJI) price data from yfinance.
+    --- THIS FUNCTION CONTAINS THE FINAL FIX ---
     """
     print(f"\nDownloading {ticker} price data from yfinance...")
     
-    end_date_plus_one = (
-        datetime.datetime.strptime(end_date, "%Y-%m-%d") + datetime.timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+    end_date_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d") + datetime.timedelta(days=1)
     
-    price_df = yf.download(ticker, start=start_date, end=end_date_plus_one)
+    price_df = yf.download(
+        ticker, 
+        start=start_date, 
+        end=end_date_dt.strftime("%Y-%m-%d")
+    )
     
-    # We will NOT reset the index here. We save it as-is to see the problem.
-    print(f"Downloaded {len(price_df)} rows of price data.")
+    # --- FIX for KeyError: 'Close' ---
+    # yfinance creates a MultiIndex header, e.g., ('Close', '^DJI').
+    # We must "flatten" it to get a single header.
+    if isinstance(price_df.columns, pd.MultiIndex):
+        print("Detected MultiIndex columns. Flattening...")
+        # This replaces ('Close', '^DJI') with just 'Close'
+        price_df.columns = price_df.columns.get_level_values(0)
+    # --- End of FIX ---
+
+    # Now the columns are ['Open', 'High', 'Low', 'Close', 'Volume', 'Adj Close']
+    
+    # Reset the index to turn 'Date' into a column
+    price_df = price_df.reset_index()
+    
+    # Clean the 'Date' column to be a date only (no time) and set to UTC
+    price_df['Date'] = pd.to_datetime(price_df['Date'].dt.date, utc=True)
+    
+    print(f"Downloaded and flattened {len(price_df)} rows of price data.")
     return price_df
 
 # ======================================================================
@@ -101,10 +123,14 @@ def get_price_data(ticker="^DJI", start_date="2017-01-01", end_date="2018-12-31"
 # ======================================================================
 
 def create_price_features(price_df):
-    """Calculates baseline price features and the target variable."""
+    """
+    Calculates baseline price features. 
+    This should now work since 'Close' is a valid column.
+    """
     print("Creating price features (returns, volatility, etc.)...")
     df_out = price_df.copy()
     
+    # This line will no longer cause a KeyError
     df_out['return_1d'] = df_out['Close'].pct_change(1)
     df_out['return_3d'] = df_out['Close'].pct_change(3)
     df_out['return_5d'] = df_out['Close'].pct_change(5)
@@ -113,6 +139,7 @@ def create_price_features(price_df):
     df_out['ma_10d'] = df_out['Close'].rolling(10).mean()
     df_out['ma_20d'] = df_out['Close'].rolling(20).mean()
     
+    # The Target Variable
     df_out['target'] = (df_out['Close'].shift(-1) > df_out['Close']).astype(int)
     
     df_out = df_out.dropna()
@@ -127,19 +154,7 @@ def create_daily_sentiment_features(news_df, trading_dates):
     news_df = news_df.set_index('date_publish')
     daily_features = []
     
-    # We need to make sure trading_dates is a clean list of dates
-    # This handles the MultiIndex problem by only grabbing the date part
-    if isinstance(trading_dates, pd.MultiIndex):
-        # This is the most likely case
-        clean_dates = trading_dates.get_level_values(0).unique()
-    elif isinstance(trading_dates, pd.DatetimeIndex):
-        clean_dates = trading_dates
-    else:
-        clean_dates = trading_dates # Fallback
-
-    for date in clean_dates:
-        # Ensure date is timezone-aware (UTC) for comparison
-        date = pd.to_datetime(date).tz_localize('UTC')
+    for date in trading_dates:
         try:
             day_group = news_df.loc[date.strftime('%Y-%m-%d')]
         except KeyError:
@@ -180,20 +195,20 @@ def create_daily_sentiment_features(news_df, trading_dates):
     return pd.DataFrame(daily_features)
 
 # ======================================================================
-# --- 4. MAIN EXECUTION (DEBUGGING) ---
+# --- 4. MAIN EXECUTION (This should now work) ---
 # ======================================================================
 
 if __name__ == "__main__":
-    print("--- STARTING PREPROCESSING PIPELINE (DEBUG MODE) ---")
+    print("--- STARTING PREPROCESSING PIPELINE (FINAL) ---")
     
-    # Step 1: Load Price Data
+    # Step 1: Load Price Data (Header is now flat)
     price_data = get_price_data(
         ticker="^DJI",
         start_date="2017-01-01",
-        end_date="2020-12-31"
+        end_date="2020-12-31" # Use file up to 2020
     )
     
-    # Step 2: Create Price Features
+    # Step 2: Create Price Features (KeyError is fixed)
     price_features_df = create_price_features(price_data)
     
     # Step 3: Load News Data
@@ -201,28 +216,36 @@ if __name__ == "__main__":
     
     if not news_df.empty:
         # Step 4: Build Daily Sentiment Features
-        # We pass the price_features_df.index to see what it is
         daily_sentiment_df = create_daily_sentiment_features(
             news_df,
-            price_features_df.index 
+            price_features_df['Date'] # Pass the clean 'Date' column
         )
         
-        # --- DEBUG STEP: Save both DataFrames to CSV ---
+        # Step 5: Merge All Data (This will work)
+        print("Merging all data frames on 'Date' column...")
+        final_df = pd.merge(
+            price_features_df, 
+            daily_sentiment_df, 
+            on='Date', 
+            how='left' 
+        )
         
-        print("\n--- DEBUGGING: Saving DataFrames to CSV before merge ---")
+        # Fill missing sentiment with 0.0 (assuming "no news" is neutral)
+        sentiment_cols = ['naive_pos', 'naive_neg', 'fits_pos', 'fits_neg']
+        final_df[sentiment_cols] = final_df[sentiment_cols].fillna(0.0)
         
-        # Save Price Features
-        price_csv_name = "price_features_debug.csv"
-        price_features_df.to_csv(price_csv_name)
-        print(f"Successfully saved price features to {price_csv_name}")
+        # Step 6: Save Final Preprocessed Data
+        output_filename = "final_preprocessed_data_full.csv"
+        final_df.to_csv(output_filename, index=False) 
         
-        # Save Sentiment Features
-        sentiment_csv_name = "sentiment_features_debug.csv"
-        daily_sentiment_df.to_csv(sentiment_csv_name, index=False)
-        print(f"Successfully saved sentiment features to {sentiment_csv_name}")
-
-        print("\n--- DEBUGGING COMPLETE ---")
-        print("Please open the two .csv files to inspect their indexes and 'Date' columns.")
+        print("\n--- PREPROCESSING COMPLETE ---")
+        print(f"Successfully saved to {output_filename}")
+        
+        print("\nFinal DataFrame Info:")
+        final_df.info()
+        
+        print("\nFinal DataFrame Head:")
+        print(final_df.head())
     
     else:
         print("\n--- PREPROCESSING FAILED: No news data was loaded. ---")
